@@ -2,8 +2,8 @@
 
 <resources>
     <usb-accessory
-        manufacturer="Lutixia"
-        model="Demo"
-        version="1.0"
+        manufacturer="deepglint"
+        model="dgaoa"
+        version="0.1"
         />
 </resources>

@@ -27,6 +27,9 @@
 #define ACCESSORY_PID 0x2d01 /* accessory with adb */
 #define ACCESSORY_PID_ALT 0x2d00 /* accessory without adb */
 
+#define ACCESSORY_GET_PROTOCOL  51
+#define ACCESSORY_SEND_STRING   52
+#define ACCESSORY_START         53
 /*64 bytes for USB full-speed accessories
 512 bytes for USB high-speed accessories
 The Android accessory protocol supports packet buffers up to 16384 bytes*/
@@ -45,16 +48,28 @@ struct libusb_device_handle* handle;
 char stop;
 char success = 0;
 
+//struct usbAccessory {
+//	char* manufacturer;
+//	char* modelName;
+//	char* version;
+//};
+
 struct usbAccessory {
-	char* manufacturer;
-	char* modelName;
-	char* version;
+    const char* manufacturer;
+    const char* modelName;
+    const char* description;
+    const char* version;
+    const char* uri;
+    const char* serialNumber;
 };
 
 struct usbAccessory gadgetAccessory = {
-                "Lutixia",
-                "Demo",
-		"1.0",
+    "deepglint",    //manufacture
+    "dgaoa",    //model
+    "AOA Demo",
+    "0.1",  //version 
+    "www.deepglint.com",
+    "0123456789"
 };
 
 int main(int argc, char *argv[])
@@ -153,37 +168,63 @@ int setupAccessory()
 	int response;
 	int tries = 5;
 
-	response = libusb_control_transfer(
-		handle, //handle
-		0xC0, //bmRequestType
-		51, //bRequest
-		0, //wValue
-		0, //wIndex
-		ioBuffer, //data
-		2, //wLength
-		1000 //timeout
-	);
+//	response = libusb_control_transfer(
+//		handle, //handle
+//		0xC0, //bmRequestType
+//		51, //bRequest
+//		0, //wValue
+//		0, //wIndex
+//		ioBuffer, //data
+//		2, //wLength
+//		1000 //timeout
+//	);
+//
+//	if (response < 0) {
+//		error(response);
+//		return-1;
+//	}
 
-	if (response < 0) {
-		error(response);
-		return-1;
-	}
+    response = libusb_control_transfer(
+                handle, //handle
+                LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE, //bmRequestType
+                ACCESSORY_GET_PROTOCOL, //bRequest
+                0, //wValue
+                0, //wIndex
+                ioBuffer, //data
+                2, //wLength
+                0 //timeout
+                );
+
+    if(response < 0){error(response);return-1;}
 
 	devVersion = ioBuffer[1] << 8 | ioBuffer[0];
 	fprintf(stdout,"Verion Code Device: %d \n", devVersion);
 	
 	usleep(1000);//sometimes hangs on the next transfer :(
 
-	if (usbSendCtrl(gadgetAccessory.manufacturer, 52, 0) < 0) {
-		return -1;
-	}
-	if (usbSendCtrl(gadgetAccessory.modelName, 52, 1) < 0) {
-		return -1;
-	}
-	if (usbSendCtrl(gadgetAccessory.version, 52, 3) < 0) {
-		return -1;
-	}
-
+    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,0,(char*)gadgetAccessory.manufacturer,strlen(gadgetAccessory.manufacturer),0);
+    if(response < 0){error(response);return -1;}
+    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,1,(char*)gadgetAccessory.modelName,strlen(gadgetAccessory.modelName)+1,0);
+    if(response < 0){error(response);return -1;}
+    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,2,(char*)gadgetAccessory.description,strlen(gadgetAccessory.description)+1,0);
+    if(response < 0){error(response);return -1;}
+    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,3,(char*)gadgetAccessory.version,strlen(gadgetAccessory.version)+1,0);
+    if(response < 0){error(response);return -1;}
+    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,4,(char*)gadgetAccessory.uri,strlen(gadgetAccessory.uri)+1,0);
+    if(response < 0){error(response);return -1;}
+    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,5,(char*)gadgetAccessory.serialNumber,strlen(gadgetAccessory.serialNumber)+1,0);
+    if(response < 0){error(response);return -1;}
+	//if (usbSendCtrl(gadgetAccessory.manufacturer, 52, 0) < 0) {
+	//	return -1;
+	//}
+	//if (usbSendCtrl(gadgetAccessory.modelName, 52, 1) < 0) {
+	//	return -1;
+	//}
+	//if (usbSendCtrl(gadgetAccessory.version, 52, 3) < 0) {
+	//	return -1;
+	//}
+    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_START,0,0,NULL,0,0);
+    if(response < 0){error(response);return -1;}
 	fprintf(stdout,"Accessory Identification sent\n");
 
 	if (usbSendCtrl(NULL, 53, 0) < 0) {
@@ -196,12 +237,12 @@ int setupAccessory()
 		libusb_release_interface (handle, 0);
 	}
 
-    int ret = 0;
-	ret = libusb_init(NULL);
-    if (ret < 0) {
-        fprintf(stderr, "failed to initialise libusb\n");
-        exit(1);
-    }
+//    int ret = 0;
+//	ret = libusb_init(NULL);
+//    if (ret < 0) {
+//        fprintf(stderr, "failed to initialise libusb\n");
+//        exit(1);
+//    }
 	for (;;) {
 		tries--;
 		if ((handle = libusb_open_device_with_vid_pid(NULL, GOOGLE_VID, ACCESSORY_PID)) == NULL) {
