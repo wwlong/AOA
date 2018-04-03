@@ -11,7 +11,8 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <pthread.h>
-
+#include <semaphore.h>
+#include "raspberry_gpio_op.h"
 
 #define EP_IN 0x81  
 #define EP_OUT 0x02
@@ -35,6 +36,7 @@
 The Android accessory protocol supports packet buffers up to 16384 bytes*/
 #define AOA_BUFF_MAX 16384
 #define LEN 2
+#define LIGHT_LED 17
 
 int init(void);
 int deInit(void);
@@ -55,12 +57,12 @@ char success = 0;
 //};
 
 struct usbAccessory {
-    const char* manufacturer;
-    const char* modelName;
-    const char* description;
-    const char* version;
-    const char* uri;
-    const char* serialNumber;
+    char* manufacturer;
+    char* modelName;
+    char* description;
+    char* version;
+    char* uri;
+    char* serialNumber;
 };
 
 struct usbAccessory gadgetAccessory = {
@@ -71,7 +73,43 @@ struct usbAccessory gadgetAccessory = {
     "www.deepglint.com",
     "0123456789"
 };
+/*
+ *  创建一个线程进行GPIO的点亮操作
+ *  拉高拉低raspberry GPIO11
+ * */
+sem_t sem_gpio_high; //通知拉高GPIO
+sem_t sem_gpio_low; //通知拉低GPIO
+void  *thread_gpio_high(void *args) {
+    while(1) {
+        pthread_detach(pthread_self());
+        sem_wait(&sem_gpio_high);
+        if(-1 == GPIORead(LIGHT_LED)) {
+            GPIOExport(LIGHT_LED);
+            GPIODirection(LIGHT_LED, OUT);
+            GPIOWrite(LIGHT_LED, HIGH);
+        }
+        else if(0 == GPIORead(LIGHT_LED)) {
+            GPIOWrite(LIGHT_LED, HIGH);
+        }
+        else {
+            printf("already on\n");
+        }
+    }
+}
 
+void *thread_gpio_low(void *args) {
+    pthread_detach(pthread_self());
+    while(1) {
+        sem_wait(&sem_gpio_low);
+        if(-1 != GPIORead(LIGHT_LED)) {
+            GPIOUnexport(LIGHT_LED);
+        }
+//      GPIOExport(LIGHT_LED);
+//      GPIODirection(LIGHT_LED, OUT);
+//      GPIOWrite(LIGHT_LED, LOW);
+
+    }
+}
 int main(int argc, char *argv[])
 {
 	pthread_t tid;
@@ -85,6 +123,10 @@ int main(int argc, char *argv[])
 		deInit();
 		return -1;
 	}
+    pthread_t thread1;
+    pthread_t thread2;
+	pthread_create(&thread1, NULL, thread_gpio_high, NULL);
+	pthread_create(&thread2, NULL, thread_gpio_low, NULL);
 	pthread_create(&tid, NULL, usbRWHdlr, NULL);
 	pthread_join(tid, NULL);
 
@@ -96,10 +138,10 @@ int main(int argc, char *argv[])
 void *usbRWHdlr(void * threadarg)
 {
 	int response, transferred;
-	unsigned int index = 0;
+	int index = 0;
 	unsigned char inBuff[AOA_BUFF_MAX] = {0};
-        unsigned char outBuff[AOA_BUFF_MAX] = {0};
-
+    char outBuff[AOA_BUFF_MAX] = {0};
+    char *light_off = "0";
 	for (;;) {
 		response =
 			libusb_bulk_transfer(handle, EP_IN, inBuff, sizeof(inBuff), &transferred, 0);
@@ -109,6 +151,14 @@ void *usbRWHdlr(void * threadarg)
 		}
 		fprintf(stdout, "msg: %s\n", inBuff);
 		sprintf(outBuff, "ACK: %07d", index++);
+
+        if(0 == memcmp(inBuff, light_off, strlen(light_off))) {
+            printf("light off\n");
+            sem_post(&sem_gpio_low);
+        }
+        else {
+            sem_post(&sem_gpio_high);
+        }
 		response =
 			libusb_bulk_transfer(handle, EP_OUT, outBuff, strlen(outBuff), &transferred, 0);
 		if (response < 0) {
@@ -188,17 +238,17 @@ int setupAccessory()
 	
 	usleep(1000);//sometimes hangs on the next transfer :(
 
-    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,0,(char*)gadgetAccessory.manufacturer,strlen(gadgetAccessory.manufacturer),0);
+    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,0,gadgetAccessory.manufacturer,strlen(gadgetAccessory.manufacturer),0);
     if(response < 0){error(response);return -1;}
-    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,1,(char*)gadgetAccessory.modelName,strlen(gadgetAccessory.modelName)+1,0);
+    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,1,gadgetAccessory.modelName,strlen(gadgetAccessory.modelName)+1,0);
     if(response < 0){error(response);return -1;}
-    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,2,(char*)gadgetAccessory.description,strlen(gadgetAccessory.description)+1,0);
+    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,2,gadgetAccessory.description,strlen(gadgetAccessory.description)+1,0);
     if(response < 0){error(response);return -1;}
-    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,3,(char*)gadgetAccessory.version,strlen(gadgetAccessory.version)+1,0);
+    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,3,gadgetAccessory.version,strlen(gadgetAccessory.version)+1,0);
     if(response < 0){error(response);return -1;}
-    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,4,(char*)gadgetAccessory.uri,strlen(gadgetAccessory.uri)+1,0);
+    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,4,gadgetAccessory.uri,strlen(gadgetAccessory.uri)+1,0);
     if(response < 0){error(response);return -1;}
-    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,5,(char*)gadgetAccessory.serialNumber,strlen(gadgetAccessory.serialNumber)+1,0);
+    response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_SEND_STRING,0,5,gadgetAccessory.serialNumber,strlen(gadgetAccessory.serialNumber)+1,0);
     if(response < 0){error(response);return -1;}
     response = libusb_control_transfer(handle,LIBUSB_REQUEST_TYPE_VENDOR,ACCESSORY_START,0,0,NULL,0,0);
     if(response < 0){error(response);return -1;}
