@@ -36,7 +36,8 @@
 The Android accessory protocol supports packet buffers up to 16384 bytes*/
 #define AOA_BUFF_MAX 16384
 #define LEN 2
-#define LIGHT_LED 17
+#define LIGHT_LED 17 
+#define PIR_GPIO 4
 
 int init(void);
 int deInit(void);
@@ -110,6 +111,46 @@ void *thread_gpio_low(void *args) {
 
     }
 }
+
+/**
+* @brief thread_pir_report 
+*       轮训PIR的信号引脚电平信号,如果是低电平,继续轮询,如果是高电平,通过USB将信号传递到Android设备,告知有人靠近
+* @param 
+*       void *args ,没有用上
+* @retval 
+*   无
+*   {"PIR":"TRIG"}
+*/
+void *thread_pir_report(void *args) {
+    pthread_detach(pthread_self());
+    int response, transferred;
+    char *cmd = "{\"PIR\":\"TRIG_ON\"}";
+    /*
+     *  初始化PIR使用的GPIO -- GPIO4
+     *  direction -- in 
+     * */
+    GPIOExport(PIR_GPIO);
+    GPIODirection(PIR_GPIO, IN);
+    /*
+     *  轮询PIR_GPIO的电平
+     * */
+    while(1) {
+        int pir_gpio_value = GPIORead(PIR_GPIO);
+        if(1 == pir_gpio_value) {
+
+            response =
+                libusb_bulk_transfer(handle, EP_OUT, cmd, strlen(cmd), &transferred, 0);
+            if (response < 0) {
+                error(response);
+                return NULL;
+            }
+            sleep(5);
+        }
+        else {
+            usleep(500*1000);
+        }
+    }
+}
 int main(int argc, char *argv[])
 {
 	pthread_t tid;
@@ -125,8 +166,10 @@ int main(int argc, char *argv[])
 	}
     pthread_t thread1;
     pthread_t thread2;
+    pthread_t thread3;
 	pthread_create(&thread1, NULL, thread_gpio_high, NULL);
 	pthread_create(&thread2, NULL, thread_gpio_low, NULL);
+	pthread_create(&thread3, NULL, thread_pir_report, NULL);
 	pthread_create(&tid, NULL, usbRWHdlr, NULL);
 	pthread_join(tid, NULL);
 
@@ -165,7 +208,6 @@ void *usbRWHdlr(void * threadarg)
 			error(response);
 			return NULL;
 		}
-		sleep(1);
     }
 }
 
