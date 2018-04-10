@@ -18,9 +18,11 @@
 #define EP_OUT 0x02
 
 /* Android device vendor/product */
-#define AD_VID 0x2717 
-#define PID 0xff48
+//#define AD_VID 0x2717 
+//#define PID 0xff48
 
+static unsigned int AD_VID = 0x12d1; //0x0bb4;
+static unsigned int PID = 0x107e; //0x0dc4;
 // #define AD_VID 0x12d1 
 // #define PID 0x107e
 
@@ -137,7 +139,7 @@ void *thread_pir_report(void *args) {
     while(1) {
         int pir_gpio_value = GPIORead(PIR_GPIO);
         if(1 == pir_gpio_value) {
-
+            printf("pir triged\n");
             response =
                 libusb_bulk_transfer(handle, EP_OUT, cmd, strlen(cmd), &transferred, 0);
             if (response < 0) {
@@ -151,9 +153,25 @@ void *thread_pir_report(void *args) {
         }
     }
 }
+void usage(void) {
+    printf("./usbacc 2717:ff48\n");
+    printf("or\n ./usbacc 2717 ff48\n");
+}
 int main(int argc, char *argv[])
 {
 	pthread_t tid;
+    if(argc < 2) {
+        usage();
+        return -1;
+    }
+    if (argc == 2) {
+        sscanf(argv[1], "%4x:%4x", &AD_VID, &PID);
+    }
+    if (argc == 3) {
+        sscanf(argv[1], "%4x", &AD_VID);
+        sscanf(argv[2], "%4x", &PID);
+    }
+
     if (init() < 0) {
 		return -1;
         printf("init failed\n");
